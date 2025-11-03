@@ -1,0 +1,4 @@
+{
+  "/buyer/[code]/page": "app/buyer/[code]/page.js",
+  "/eater/[code]/page": "app/eater/[code]/page.js"
+}

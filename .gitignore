@@ -1,3 +1,14 @@
-.env*
+# environment files
+.env
+.env.local
+.env.*.local
+
+# build output
+.next
+
+# dependencies
 node_modules
-.vercel
+
+# OS and editor junk
+.DS_Store
+.vscode

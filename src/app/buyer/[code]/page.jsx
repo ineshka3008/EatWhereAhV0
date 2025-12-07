@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function BuyerPage({ params }) {
-  const { code } = params;
+export default function BuyerPage() {
+  const params = useParams();
+  const rawCode = params?.code;
+  const code = Array.isArray(rawCode) ? rawCode[0] : rawCode;
 
   const [sessionId, setSessionId] = useState(null);
   const [stalls, setStalls] = useState([]);
@@ -28,12 +31,17 @@ export default function BuyerPage({ params }) {
     let choiceChannel;
 
     async function loadAll() {
+      if (!code) return; // guard until param is ready
+
+      // Simple: get the single session by code
       const { data: session } = await supabase
         .from('sessions')
         .select('id, market_id')
-        .eq('code', code)
+        .eq('code', String(code).toLowerCase())
         .single();
+
       if (!session) return;
+
       setSessionId(session.id);
 
       const { data: s } = await supabase
@@ -67,7 +75,12 @@ export default function BuyerPage({ params }) {
         .channel(`availability:${session.id}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'availability', filter: `session_id=eq.${session.id}` },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'availability',
+            filter: `session_id=eq.${session.id}`,
+          },
           (payload) => {
             const row = payload.new;
             if (!row) return;
@@ -81,18 +94,30 @@ export default function BuyerPage({ params }) {
         .channel(`events:${session.id}`)
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'events', filter: `session_id=eq.${session.id}` },
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'events',
+            filter: `session_id=eq.${session.id}`,
+          },
           (payload) => {
             const row = payload.new;
             if (!row) return;
             if (row.event_type === 'decision_made') {
               const chosen = row.meta?.stall_name || 'Unknown stall';
-              const seconds = checkedAt != null ? Math.floor((Date.now() - checkedAt) / 1000) : null;
-              if (seconds != null) console.log('Decision latency (seconds):', seconds);
-              alert(`Eater chose: ${chosen}${seconds != null ? `\nDecision time: ${seconds}s` : ''}`);
+              const seconds =
+                checkedAt != null
+                  ? Math.floor((Date.now() - checkedAt) / 1000)
+                  : null;
+              if (seconds != null)
+                console.log('Decision latency (seconds):', seconds);
+              alert(
+                `Eater chose: ${chosen}${
+                  seconds != null ? `\nDecision time: ${seconds}s` : ''
+                }`
+              );
               setCheckedAt(null);
               setElapsed(0);
-              // Also reflect selected stall by name lookup:
               const match = (stalls || []).find((st) => st.name === chosen);
               if (match) setSelectedStallId(match.id);
             }
@@ -109,9 +134,17 @@ export default function BuyerPage({ params }) {
         .channel(`decision:${session.id}`)
         .on('broadcast', { event: 'decision_made' }, (message) => {
           const chosen = message?.payload?.stall_name || 'Unknown stall';
-          const seconds = checkedAt != null ? Math.floor((Date.now() - checkedAt) / 1000) : null;
-          if (seconds != null) console.log('Decision latency (seconds):', seconds);
-          alert(`Eater chose: ${chosen}${seconds != null ? `\nDecision time: ${seconds}s` : ''}`);
+          const seconds =
+            checkedAt != null
+              ? Math.floor((Date.now() - checkedAt) / 1000)
+              : null;
+          if (seconds != null)
+            console.log('Decision latency (seconds):', seconds);
+          alert(
+            `Eater chose: ${chosen}${
+              seconds != null ? `\nDecision time: ${seconds}s` : ''
+            }`
+          );
           setCheckedAt(null);
           setElapsed(0);
           const match = (stalls || []).find((st) => st.name === chosen);
@@ -128,7 +161,12 @@ export default function BuyerPage({ params }) {
         .channel(`choice:${session.id}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'current_choice', filter: `session_id=eq.${session.id}` },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'current_choice',
+            filter: `session_id=eq.${session.id}`,
+          },
           (payload) => {
             const row = payload.new;
             if (!row) return;
@@ -159,7 +197,12 @@ export default function BuyerPage({ params }) {
         await supabase
           .from('availability')
           .upsert(
-            { session_id: sessionId, stall_id: stallId, is_open: isOpen, updated_by: 'buyer' },
+            {
+              session_id: sessionId,
+              stall_id: stallId,
+              is_open: isOpen,
+              updated_by: 'buyer',
+            },
             { onConflict: 'session_id,stall_id' }
           );
       } finally {
@@ -170,7 +213,10 @@ export default function BuyerPage({ params }) {
 
   useEffect(() => {
     if (!checkedAt) return;
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - checkedAt) / 1000)), 1000);
+    const id = setInterval(
+      () => setElapsed(Math.floor((Date.now() - checkedAt) / 1000)),
+      1000
+    );
     return () => clearInterval(id);
   }, [checkedAt]);
 
@@ -178,10 +224,11 @@ export default function BuyerPage({ params }) {
     setCheckedAt(Date.now());
     setElapsed(0);
     if (sessionId) {
-      await supabase.from('events').insert({ session_id: sessionId, event_type: 'all_checked', meta: {} });
+      await supabase
+        .from('events')
+        .insert({ session_id: sessionId, event_type: 'all_checked', meta: {} });
     }
-    const eaterLink = window.location.href.replace('/buyer/', '/eater/');
-    navigator.share?.({ url: eaterLink }) ?? (window.location.href = eaterLink);
+    // "share eater link" was removed permanently
   }
 
   function stopDecisionTimer() {
@@ -195,7 +242,9 @@ export default function BuyerPage({ params }) {
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto', padding: 16 }}>
-      <h1 style={{ fontWeight: 600, fontSize: 20, marginBottom: 8 }}>Buyer · {code}</h1>
+      <h1 style={{ fontWeight: 600, fontSize: 20, marginBottom: 8 }}>
+        Buyer · {code}
+      </h1>
 
       {/* Persistent selection + request banner */}
       {(selectedStallId || latestRequest) ? (
@@ -224,16 +273,9 @@ export default function BuyerPage({ params }) {
       ) : null}
 
       <div style={{ margin: '8px 0', fontSize: 14 }}>
-        Open: <b>{Object.values(availability).filter(Boolean).length}</b> / <b>{stalls.length}</b>
-      </div>
-
-      <div style={{ position: 'sticky', top: 0, background: 'white', paddingBottom: 8, zIndex: 10 }}>
-        <button
-          onClick={() => navigator.share?.({ url: window.location.href.replace('/buyer/', '/eater/') })}
-          style={{ width: '100%', padding: 12, borderRadius: 12, border: '1px solid #333', fontWeight: 500 }}
-        >
-          Share Eater link
-        </button>
+        Open:{' '}
+        <b>{Object.values(availability).filter(Boolean).length}</b> /{' '}
+        <b>{stalls.length}</b>
       </div>
 
       <ul style={{ marginTop: 12 }}>
@@ -255,7 +297,9 @@ export default function BuyerPage({ params }) {
               }}
             >
               <div style={{ paddingRight: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                >
                   {stall.physical_stalls ? (
                     <span
                       style={{
@@ -281,7 +325,9 @@ export default function BuyerPage({ params }) {
               <button
                 onClick={() => toggle(stall.id, !isOpen)}
                 aria-pressed={isOpen}
-                aria-label={`Mark ${stall.name} as ${isOpen ? 'closed' : 'open'}`}
+                aria-label={`Mark ${stall.name} as ${
+                  isOpen ? 'closed' : 'open'
+                }`}
                 style={{
                   padding: '8px 14px',
                   borderRadius: 999,
@@ -297,7 +343,14 @@ export default function BuyerPage({ params }) {
         })}
       </ul>
 
-      <div style={{ position: 'sticky', bottom: 12, background: 'white', paddingTop: 8 }}>
+      <div
+        style={{
+          position: 'sticky',
+          bottom: 12,
+          background: 'white',
+          paddingTop: 8,
+        }}
+      >
         {!checkedAt ? (
           <button
             onClick={handleAllStallsChecked}
@@ -316,12 +369,26 @@ export default function BuyerPage({ params }) {
           </button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1, textAlign: 'center', padding: 12, borderRadius: 12, border: '1px solid #ddd' }}>
+            <div
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                padding: 12,
+                borderRadius: 12,
+                border: '1px solid #ddd',
+              }}
+            >
               ⏱️ Decision timer: <b>{elapsed}s</b>
             </div>
             <button
               onClick={stopDecisionTimer}
-              style={{ padding: 12, borderRadius: 12, background: '#111', color: '#fff', border: 'none' }}
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                background: '#111',
+                color: '#fff',
+                border: 'none',
+              }}
             >
               Stop
             </button>
